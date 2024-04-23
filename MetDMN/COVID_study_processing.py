@@ -11,15 +11,14 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 import networkx as nx
 import glob
-
-
+import sspa
 
 
 class MTBLSDataset:
     '''
     Class to load and QC metabolon data
     '''
-    def __init__(self, file_path, id, node_name, md_group, md_filter, maf_sheet=0):
+    def __init__(self, file_path, id, node_name, md_group, md_filter, maf_sheet=0, identifier='database_identifier', outliers=None, pathway_level=False):
         self.file_path = file_path
         self.raw_data = None
         self.compound_mappers = None
@@ -31,9 +30,15 @@ class MTBLSDataset:
         self.md_filter = md_filter
         self.DA_metabolites = None
         self.maf_sheet = maf_sheet
+        self.identifier = identifier
+        self.outliers = outliers
+        self.pathway_data = None
+        self.pathway_level = pathway_level
+        self.pathway_coverage = None
 
         self.read_data(file_path)
         self.preprocess_data()
+        self.get_pathway_data()
         self.da_testing()
         
     def read_data(self, file_path):
@@ -58,12 +63,28 @@ class MTBLSDataset:
     def preprocess_data(self):
         data_filt = self.raw_data.copy()
 
-        # set chebi as index
-        data_filt = data_filt[data_filt['database_identifier'].notna()]
-        data_filt.index = data_filt['database_identifier']
+        # repalce decimal in mz ratios
+        try:
+            data_filt['mass_to_charge'] = data_filt['mass_to_charge'].astype('str').apply(lambda x: re.sub(r'\.', '_', x))
+        except KeyError:
+            pass
+
+        self.all_ids = data_filt.iloc[:, ~data_filt.columns.isin(self.metadata['Sample Name'].tolist())]
+
+        # make a new identifier colum from chebi and metabolite_identification, prioritise chebi
+        data_filt['Identifier'] = data_filt['database_identifier'].fillna(data_filt['metabolite_identification'])
+        data_filt = data_filt[data_filt['Identifier'].notna()]
+        data_filt.index = data_filt['Identifier']
+
+        # # set chebi as index
+        # data_filt = data_filt[data_filt[self.identifier].notna()]
+        # data_filt.index = data_filt[self.identifier]
 
         # keep only abundance data filtering on samples
+        # store alternative identifiers in a dict
         samples = self.metadata['Sample Name'].tolist()
+        ids = data_filt.iloc[:, ~data_filt.columns.isin(samples)]
+        self.id_dict = ids.to_dict()
         data_filt = data_filt.iloc[:, data_filt.columns.isin(samples)]
 
         # ensure all data is numeric
@@ -80,6 +101,10 @@ class MTBLSDataset:
     #     # filter on metadata
         data_filt = data_filt[data_filt['Group'].isin(self.md_filter)]
         data_filt = data_filt.drop(columns=['Group'])
+
+        # drop outliers
+        if self.outliers:
+            data_filt = data_filt.drop(self.outliers)
 
         # Missingness checks 
         # replace empty strings with NaN
@@ -112,15 +137,30 @@ class MTBLSDataset:
 
         return data_scaled
     
+    def get_pathway_data(self):
+        reactome_paths = sspa.process_gmt(infile='Reactome_Homo_sapiens_pathways_ChEBI_R88.gmt')
+        reactome_dict = sspa.utils.pathwaydf_to_dict(reactome_paths)
+        # remove CHEBI: from column names
+        data = self.processed_data
+        data.columns = data.columns.str.removeprefix("CHEBI:")
+
+        # store pathway coverage stats
+        cvrg_dict = {k: len(set(data.columns).intersection(set(v))) for k, v in reactome_dict.items()}
+        self.pathway_coverage = cvrg_dict
+
+        scores = sspa.sspa_KPCA(reactome_paths).fit_transform(data.iloc[:, :-1])
+        scores['Group'] = self.processed_data['Group']
+        self.pathway_data = scores
+    
     def plot_qc(self):
-        print(self.processed_data.isna().sum().sum())
         # PCA biplot
-        pca = PCA(n_components=2)
+        pca = PCA(n_components=2).set_output(transform="pandas")
         pca_result = pca.fit_transform(self.processed_data.iloc[:, :-1])
+        self.pca = pca_result
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
         sns.scatterplot(
-            x=pca_result[:, 0], y=pca_result[:, 1],
+            x=pca_result.iloc[:, 0], y=pca_result.iloc[:, 1],
             hue="Group",
             data=self.processed_data,
             alpha=0.7,
@@ -136,12 +176,17 @@ class MTBLSDataset:
 
     def da_testing(self):
 
+        if self.pathway_level == True:
+            dat = self.pathway_data
+        else:
+            dat = self.processed_data
+
         # t-test for two groups
-        groups = self.processed_data['Group'].unique()
-        stat, pvals = stats.ttest_ind(self.processed_data[self.processed_data['Group'] == groups[0]].iloc[:, :-1],
-                        self.processed_data[self.processed_data['Group'] == groups[1]].iloc[:, :-1],
+        groups = dat['Group'].unique()
+        stat, pvals = stats.ttest_ind(dat[dat['Group'] == groups[0]].iloc[:, :-1],
+                        dat[dat['Group'] == groups[1]].iloc[:, :-1],
                         alternative='two-sided', nan_policy='raise')
-        pval_df = pd.DataFrame(pvals, index=self.processed_data.columns[:-1], columns=['P-value'])
+        pval_df = pd.DataFrame(pvals, index=dat.columns[:-1], columns=['P-value'])
         self.pval_df = pval_df
 
         # fdr correction 
@@ -153,6 +198,7 @@ class MTBLSDataset:
 
         # generate tuples for nx links
         self.connection = [(self.node_name, met) for met in self.DA_metabolites]
+        self.full_connection = [(self.node_name, met) for met in self.processed_data.columns[:-1]]
 
     # def get_class_info(self, hmdbs=None):
 
