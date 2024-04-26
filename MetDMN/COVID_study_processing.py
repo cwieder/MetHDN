@@ -13,7 +13,6 @@ import networkx as nx
 import glob
 import sspa
 
-
 class MTBLSDataset:
     '''
     Class to load and QC metabolon data
@@ -47,10 +46,21 @@ class MTBLSDataset:
         """
         # read in the maf files
         files = glob.glob(file_path + '/*_maf.tsv')
+        print(files)
         # for now only use one maf file
 
-        data = pd.read_csv(files[self.maf_sheet], sep='\t')
+        if len(files) > 1:
+            if self.maf_sheet:
+                filt_files = [files[i] for i in self.maf_sheet]
+                data = pd.concat([pd.read_csv(f, sep='\t') for f in filt_files], join='inner')
+            else:
+                # read all files in 
+                data = pd.concat([pd.read_csv(f, sep='\t') for f in files], join='inner')
+        else:
+            data = pd.read_csv(files[0], sep='\t')
+
         self.raw_data = data
+        print(data.shape)
 
         metadata = pd.read_csv(file_path + '/s_' + self.id + '.txt', sep = '\t', encoding='unicode_escape')
 
@@ -79,7 +89,7 @@ class MTBLSDataset:
         # # set chebi as index
         # data_filt = data_filt[data_filt[self.identifier].notna()]
         # data_filt.index = data_filt[self.identifier]
-
+        print(data_filt.shape)
         # keep only abundance data filtering on samples
         # store alternative identifiers in a dict
         samples = self.metadata['Sample Name'].tolist()
@@ -92,6 +102,7 @@ class MTBLSDataset:
 
         # Transpose
         data_filt = data_filt.T
+        print(data_filt.shape)
 
         # There weill be QC samples so better filter on metadata at this point
         md_dict = dict(zip(self.metadata['Sample Name'], self.metadata[self.md_group]))
@@ -99,7 +110,7 @@ class MTBLSDataset:
         data_filt['Group'] = data_filt.index.map(md_dict)
 
     #     # filter on metadata
-        data_filt = data_filt[data_filt['Group'].isin(self.md_filter)]
+        data_filt = data_filt[data_filt['Group'].isin(self.md_filter.values())]
         data_filt = data_filt.drop(columns=['Group'])
 
         # drop outliers
@@ -182,11 +193,15 @@ class MTBLSDataset:
             dat = self.processed_data
 
         # t-test for two groups
-        groups = dat['Group'].unique()
-        stat, pvals = stats.ttest_ind(dat[dat['Group'] == groups[0]].iloc[:, :-1],
-                        dat[dat['Group'] == groups[1]].iloc[:, :-1],
+        case = self.md_filter['Case']
+        control = self.md_filter['Control']
+        
+        stat, pvals = stats.ttest_ind(dat[dat['Group'] == case].iloc[:, :-1],
+                        dat[dat['Group'] == control].iloc[:, :-1],
                         alternative='two-sided', nan_policy='raise')
         pval_df = pd.DataFrame(pvals, index=dat.columns[:-1], columns=['P-value'])
+        pval_df['Stat'] = stat
+        pval_df['Direction'] = ['Up' if x > 0 else 'Down' for x in stat]
         self.pval_df = pval_df
 
         # fdr correction 
@@ -199,21 +214,3 @@ class MTBLSDataset:
         # generate tuples for nx links
         self.connection = [(self.node_name, met) for met in self.DA_metabolites]
         self.full_connection = [(self.node_name, met) for met in self.processed_data.columns[:-1]]
-
-    # def get_class_info(self, hmdbs=None):
-
-    #     if hmdbs == None:
-    #         hmdbs = self.compound_mappers['HMDB'].tolist()
-    #     hmdb_ids = ['hmdb:' + str(hmdb) for hmdb in hmdbs if not pd.isna(hmdb)]
-    #     print(hmdb_ids)
-    #     api_url = "https://rampdb.nih.gov/api/chemical-classes"
-    #     request_body = {
-    #     "metabolites": hmdb_ids
-    #     }
-    #     response = requests.post(api_url, json=request_body, verify=False)
-    #     resp_json = response.json()['data']
-    #     resp_df = pd.DataFrame.from_dict(resp_json)
-    #     return resp_df
-    
-
-
