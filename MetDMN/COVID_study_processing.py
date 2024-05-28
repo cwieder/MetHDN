@@ -75,6 +75,7 @@ class MTBLSDataset:
 
         # repalce decimal in mz ratios
         try:
+            data_filt['mass_to_charge'] = data_filt['mass_to_charge'].round(2)
             data_filt['mass_to_charge'] = data_filt['mass_to_charge'].astype('str').apply(lambda x: re.sub(r'\.', '_', x))
         except KeyError:
             pass
@@ -82,9 +83,14 @@ class MTBLSDataset:
         self.all_ids = data_filt.iloc[:, ~data_filt.columns.isin(self.metadata['Sample Name'].tolist())]
 
         # make a new identifier colum from chebi and metabolite_identification, prioritise chebi
-        data_filt['Identifier'] = data_filt['database_identifier'].fillna(data_filt['metabolite_identification'])
-        data_filt = data_filt[data_filt['Identifier'].notna()]
-        data_filt.index = data_filt['Identifier']
+        data_filt['Identifier'] = data_filt['database_identifier'].replace('unknown', np.NaN)
+        
+        try:
+            data_filt['Identifier_filled'] = data_filt['Identifier'].fillna(data_filt['mass_to_charge'])
+            data_filt = data_filt[data_filt['Identifier_filled'].notna()]
+            data_filt.index = data_filt['Identifier_filled']
+        except KeyError:
+             data_filt.index = data_filt['Identifier']
 
         # # set chebi as index
         # data_filt = data_filt[data_filt[self.identifier].notna()]

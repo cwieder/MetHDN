@@ -3,7 +3,7 @@ import os
 from ftplib import FTP
 
 # import study ids to downlaod
-study_ids = open('MetDMN\covid_studies.txt', 'r').read().splitlines()
+study_ids = open('MetDMN\other_studies.txt', 'r').read().splitlines()
 
 print(study_ids)
 
