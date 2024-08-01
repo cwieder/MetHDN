@@ -3,7 +3,7 @@ import os
 from ftplib import FTP
 
 # import study ids to downlaod
-study_ids = open('MetDMN\other_studies.txt', 'r').read().splitlines()
+study_ids = open('covid_studies.txt', 'r').read().splitlines()
 
 print(study_ids)
 
@@ -22,11 +22,11 @@ for study_id in study_ids:
     maf_file_url = 'm_' + study_id + '*.txt'
 
     # make directory
-    if not os.path.exists('MetDMN/Studies/' + study_id):
-        os.makedirs('MetDMN/Studies/' + study_id)
+    if not os.path.exists('Studies/' + study_id):
+        os.makedirs('Studies/' + study_id)
 
     # download sample file
-    sampfile = open('MetDMN/Studies/' + study_id + '/' + sample_file_url, 'wb')
+    sampfile = open('Studies/' + study_id + '/' + sample_file_url, 'wb')
     print(sample_file_url)
     ftp.retrbinary('RETR ' + sample_file_url, sampfile.write)
     sampfile.close()
@@ -34,7 +34,7 @@ for study_id in study_ids:
     # download maf files
     maf_files = ftp.nlst('*maf.tsv')
     for file in maf_files:
-        maf_file = open('MetDMN/Studies/' + study_id + '/' + file, 'wb')
+        maf_file = open('Studies/' + study_id + '/' + file, 'wb')
         print(file)
         ftp.retrbinary('RETR ' + file, maf_file.write)
         maf_file.close()
