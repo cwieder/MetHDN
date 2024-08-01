@@ -1,6 +1,8 @@
 # Metabolights metabolite-meta network
 Last updated 24/07/24
 
+COVID-19 example notebook is stored in `MetHDN/MetDMN/COVID_network-cleaned.ipynb`
+
 ## Downloading studies
 Study data is downloaded via FTP. We download the sample metadata file and the 'maf' files for all studies of interest. 
 
@@ -56,5 +58,6 @@ Either metabolite abundances or pathway scores can be tested for differential ab
 
 ## Creating bipartite graph
 
+
 ## Visualising network
-Network 
+NetworkX is exported to Cytoscape - ensure key attributes such as study contribution, ChEBI name, etc are added to network (see COVID notebook example).
